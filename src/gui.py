@@ -64,6 +64,7 @@ class CareerOSApp(tk.Tk):
         ttk.Label(header, text="Your job search, with a clearer next move.", style="Subtitle.TLabel").pack(side="left", padx=(16, 0), pady=(8, 0))
 
         notebook = ttk.Notebook(self)
+        self.notebook = notebook
         notebook.pack(fill="both", expand=True, padx=22, pady=(0, 22))
 
         self.jobs_tab = ttk.Frame(notebook)
@@ -181,8 +182,41 @@ class CareerOSApp(tk.Tk):
         scrollbar.pack(side="right", fill="y")
 
     def _build_add_tab(self):
-        frame = ttk.Frame(self.add_tab, padding=(30, 22, 30, 30))
-        frame.pack(fill="both", expand=True)
+        scroll_container = ttk.Frame(self.add_tab)
+        scroll_container.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(
+            scroll_container,
+            background=self.colors["canvas"],
+            highlightthickness=0,
+        )
+        scrollbar = ttk.Scrollbar(
+            scroll_container,
+            orient="vertical",
+            command=canvas.yview,
+        )
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        frame = ttk.Frame(canvas, padding=(30, 22, 30, 30))
+        frame_window = canvas.create_window((0, 0), window=frame, anchor="nw")
+
+        def update_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def resize_form(event):
+            canvas.itemconfigure(frame_window, width=event.width)
+
+        frame.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", resize_form)
+        self.add_form_canvas = canvas
+        self.bind_all("<MouseWheel>", self._scroll_add_form)
+        self.bind_all("<Button-4>", self._scroll_add_form)
+        self.bind_all("<Button-5>", self._scroll_add_form)
+        canvas.bind("<Prior>", lambda _event: canvas.yview_scroll(-8, "units"))
+        canvas.bind("<Next>", lambda _event: canvas.yview_scroll(8, "units"))
+
         ttk.Label(frame, text="Add a job to your pipeline", style="Section.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 3))
         ttk.Label(frame, text="Capture the details now; keep the decision visible later.", style="Subtitle.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 18))
 
@@ -259,6 +293,19 @@ class CareerOSApp(tk.Tk):
 
         frame.columnconfigure(1, weight=1)
 
+    def _scroll_add_form(self, event):
+        if self.notebook.select() != str(self.add_tab):
+            return
+
+        if event.num == 4:
+            units = -3
+        elif event.num == 5:
+            units = 3
+        else:
+            units = -max(1, round(event.delta / 120))
+        self.add_form_canvas.yview_scroll(units, "units")
+        return "break"
+
     def _build_analytics_tab(self):
         top = ttk.Frame(self.analytics_tab, padding=(6, 14, 6, 10))
         top.pack(fill="x")
@@ -272,6 +319,29 @@ class CareerOSApp(tk.Tk):
         self.kpi_frame = ttk.Frame(top)
         self.kpi_frame.pack(side="right", fill="x", expand=True, padx=(20, 0))
 
+        visual_row = ttk.Frame(self.analytics_tab, padding=(6, 0, 6, 12))
+        visual_row.pack(fill="x")
+
+        funnel_panel = ttk.LabelFrame(visual_row, text="Application funnel", padding=10)
+        funnel_panel.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        self.funnel_canvas = tk.Canvas(
+            funnel_panel,
+            height=176,
+            background=self.colors["panel"],
+            highlightthickness=0,
+        )
+        self.funnel_canvas.pack(fill="both", expand=True)
+
+        action_panel = ttk.LabelFrame(visual_row, text="Next best moves", padding=10)
+        action_panel.pack(side="left", fill="both", expand=True, padx=(6, 0))
+        self.action_text = tk.Text(action_panel, height=9, wrap="word")
+        self.action_text.pack(fill="both", expand=True)
+        self.action_text.configure(
+            background=self.colors["panel"], foreground=self.colors["ink"],
+            relief="flat", borderwidth=0, padx=10, pady=7,
+            font=("Segoe UI", 10), insertbackground=self.colors["ink"],
+        )
+
         body = ttk.Frame(self.analytics_tab, padding=(6, 0, 6, 6))
         body.pack(fill="both", expand=True)
 
@@ -281,13 +351,23 @@ class CareerOSApp(tk.Tk):
         left.pack(side="left", fill="both", expand=True, padx=(0, 6))
         right.pack(side="left", fill="both", expand=True, padx=(6, 0))
 
-        self.status_text = tk.Text(left, wrap="word")
-        self.status_text.pack(fill="both", expand=True)
+        status_columns = ("category", "count")
+        self.status_table = ttk.Treeview(left, columns=status_columns, show="headings", height=12)
+        self.status_table.heading("category", text="STATUS / COUNTRY")
+        self.status_table.heading("count", text="JOBS")
+        self.status_table.column("category", anchor="w", width=210, stretch=True)
+        self.status_table.column("count", anchor="e", width=75, stretch=False)
+        self.status_table.pack(fill="both", expand=True)
 
-        self.skills_text = tk.Text(right, wrap="word")
-        self.skills_text.pack(fill="both", expand=True)
-        for text_widget in (self.status_text, self.skills_text):
-            text_widget.configure(background=self.colors["panel"], foreground=self.colors["ink"], relief="flat", borderwidth=0, padx=12, pady=10, font=("Segoe UI", 10), insertbackground=self.colors["ink"])
+        skill_columns = ("skill", "required", "missing")
+        self.skills_table = ttk.Treeview(right, columns=skill_columns, show="headings", height=12)
+        self.skills_table.heading("skill", text="SKILL")
+        self.skills_table.heading("required", text="REQUIRED")
+        self.skills_table.heading("missing", text="TO BUILD")
+        self.skills_table.column("skill", anchor="w", width=220, stretch=True)
+        self.skills_table.column("required", anchor="e", width=85, stretch=False)
+        self.skills_table.column("missing", anchor="e", width=85, stretch=False)
+        self.skills_table.pack(fill="both", expand=True)
 
     def refresh_jobs(self):
         for item in self.tree.get_children():
@@ -438,39 +518,77 @@ class CareerOSApp(tk.Tk):
             tk.Label(card, text=title, bg=self.colors["panel"], fg=self.colors["muted"], font=("Segoe UI", 8, "bold")).pack(anchor="w")
             tk.Label(card, text=value, bg=self.colors["panel"], fg=color, font=("Segoe UI", 16, "bold")).pack(anchor="w")
 
-        status_lines = ["STATUS MIX", ""]
+        self._draw_funnel(s)
+        self._write_next_moves(s)
+
+        for item in self.status_table.get_children():
+            self.status_table.delete(item)
+        for item in self.skills_table.get_children():
+            self.skills_table.delete(item)
+
         for key, value in s["by_status"].items():
-            status_lines.append(f"{key:<15} {value:>4}")
+            self.status_table.insert("", "end", values=(key, value))
 
-        status_lines.extend(["", "COUNTRIES", ""])
+        self.status_table.insert("", "end", values=("COUNTRIES", ""), tags=("section",))
         for key, value in s["by_country"].items():
-            status_lines.append(f"{key:<22} {value:>4}")
+            self.status_table.insert("", "end", values=(key, value))
         if not s["by_country"]:
-            status_lines.append("No country data yet")
+            self.status_table.insert("", "end", values=("No country data yet", ""))
 
-        self.status_text.delete("1.0", "end")
-        self.status_text.insert("1.0", "\n".join(status_lines))
-        self.status_text.tag_configure("heading", foreground=self.colors["teal_dark"], font=("Segoe UI", 10, "bold"))
-        self.status_text.tag_add("heading", "1.0", "1.end")
-        country_line = status_lines.index("COUNTRIES") + 1
-        self.status_text.tag_add("heading", f"{country_line}.0", f"{country_line}.end")
+        self.status_table.tag_configure("section", foreground=self.colors["teal_dark"], font=("Segoe UI", 9, "bold"))
 
-        skill_lines = ["REQUIRED SKILLS", ""]
-        for skill, count in s["required_skills"][:15]:
-            skill_lines.append(f"{skill:<30} {count:>4}")
+        required = dict(s["required_skills"][:15])
+        missing = dict(s["missing_skills"][:15])
+        for skill in sorted(set(required) | set(missing), key=lambda name: (-max(required.get(name, 0), missing.get(name, 0)), name.casefold())):
+            self.skills_table.insert("", "end", values=(skill, required.get(skill, ""), missing.get(skill, "")))
+        if not required and not missing:
+            self.skills_table.insert("", "end", values=("No skill data yet", "", ""))
 
-        skill_lines.extend(["", "SKILLS TO BUILD", ""])
-        for skill, count in s["missing_skills"][:15]:
-            skill_lines.append(f"{skill:<30} {count:>4}")
-        if not s["required_skills"] and not s["missing_skills"]:
-            skill_lines.append("Add required or missing skills to see patterns")
+    def _draw_funnel(self, summary):
+        canvas = self.funnel_canvas
+        canvas.delete("all")
+        canvas.update_idletasks()
+        width = max(canvas.winfo_width(), 420)
+        stages = (
+            ("Tracked", summary["total_jobs"], self.colors["ink"]),
+            ("Applied", summary["applied_jobs"], self.colors["teal"]),
+            ("Interviews", summary["interviews"], self.colors["green"]),
+            ("Offers", summary["offers"], self.colors["coral"]),
+        )
+        max_value = max((value for _, value, _ in stages), default=1) or 1
+        left = 102
+        right = width - 28
+        bar_width = max(right - left, 160)
+        for index, (label, value, color) in enumerate(stages):
+            y = 17 + index * 38
+            canvas.create_text(0, y + 10, text=label, anchor="w", fill=self.colors["muted"], font=("Segoe UI", 9, "bold"))
+            canvas.create_rectangle(left, y, right, y + 20, fill="#E8EEF5", outline="")
+            filled = max(8, bar_width * value / max_value) if value else 0
+            if filled:
+                canvas.create_rectangle(left, y, left + filled, y + 20, fill=color, outline="")
+            canvas.create_text(right + 2, y + 10, text=str(value), anchor="e", fill=self.colors["ink"], font=("Segoe UI", 10, "bold"))
 
-        self.skills_text.delete("1.0", "end")
-        self.skills_text.insert("1.0", "\n".join(skill_lines))
-        self.skills_text.tag_configure("heading", foreground=self.colors["teal_dark"], font=("Segoe UI", 10, "bold"))
-        self.skills_text.tag_add("heading", "1.0", "1.end")
-        skills_line = skill_lines.index("SKILLS TO BUILD") + 1
-        self.skills_text.tag_add("heading", f"{skills_line}.0", f"{skills_line}.end")
+    def _write_next_moves(self, summary):
+        moves = []
+        if not summary["total_jobs"]:
+            moves.append("Add your first target job to start the funnel.")
+        elif not summary["applied_jobs"]:
+            moves.append("Choose your strongest saved job and submit the first application.")
+        elif summary["response_rate"] < 15:
+            moves.append("Response rate is low. Review CV versions and tailor the next 3 applications.")
+        else:
+            moves.append("Keep the pipeline moving: follow up on active applications this week.")
+
+        if summary["missing_skills"]:
+            skill, count = summary["missing_skills"][0]
+            moves.append(f"Build evidence for {skill}; it appears in {count} tracked job brief(s).")
+        if summary["average_match"] is not None and summary["average_match"] < 60:
+            moves.append("Average match is below 60. Focus searches on roles closer to your strongest skills.")
+        if len(moves) < 3:
+            moves.append("Log each outcome promptly so the funnel stays useful.")
+
+        self.action_text.delete("1.0", "end")
+        self.action_text.insert("1.0", "\n".join(f"{index}. {move}" for index, move in enumerate(moves[:3], start=1)))
 
     def export_excel(self):
         try:
