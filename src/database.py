@@ -1,22 +1,18 @@
 import sqlite3
-import sys
 from pathlib import Path
 
 
-if getattr(sys, "frozen", False):
-    DATA_DIR = Path.home() / "CareerOS"
-else:
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    DATA_DIR = PROJECT_ROOT / "database"
-
-
+DATA_DIR = Path.home() / "CareerOS"
 DB_PATH = DATA_DIR / "career.db"
 
+
 def get_connection():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
+
     return connection
 
 
