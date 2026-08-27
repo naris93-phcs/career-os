@@ -1,4 +1,5 @@
 import tkinter as tk
+import webbrowser
 from tkinter import messagebox, ttk
 
 from src.analytics import get_summary
@@ -124,6 +125,12 @@ class CareerOSApp(tk.Tk):
             toolbar,
             text="Edit selected",
             command=self.edit_selected,
+        ).pack(side="left", padx=4)
+
+        ttk.Button(
+            toolbar,
+            text="Open Job Posting",
+            command=self.open_selected_job_url,
         ).pack(side="left", padx=4)
 
         ttk.Button(
@@ -753,6 +760,43 @@ class CareerOSApp(tk.Tk):
 
         values = self.tree.item(selected[0], "values")
         return int(values[0])
+
+    def open_selected_job_url(self):
+        job_id = self._selected_job_id()
+        if job_id is None:
+            return
+
+        job = get_job(job_id)
+        if not job:
+            messagebox.showerror("Career OS", "That job no longer exists.")
+            self.refresh_jobs()
+            return
+
+        url = (job.get("url") or "").strip()
+        if not url:
+            messagebox.showwarning(
+                "Career OS",
+                "The selected job does not have a saved URL.",
+            )
+            return
+
+        if not url.lower().startswith(("http://", "https://")):
+            url = f"https://{url}"
+
+        try:
+            opened = webbrowser.open_new_tab(url)
+        except Exception as exc:
+            messagebox.showerror(
+                "Career OS",
+                f"Could not open the job posting:\n{exc}",
+            )
+            return
+
+        if opened is False:
+            messagebox.showwarning(
+                "Career OS",
+                "The browser did not confirm that the job posting was opened.",
+            )
 
     def edit_selected(self):
         job_id = self._selected_job_id()
