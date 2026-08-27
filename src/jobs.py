@@ -242,6 +242,74 @@ def update_status(job_id, status):
     return changed > 0
 
 
+def update_job(job_id, **fields):
+    allowed = {
+        "company", "role", "country", "city", "url", "date_found",
+        "deadline", "match_score", "eligibility", "status",
+        "required_skills", "missing_skills", "cv_version", "cover_letter",
+        "notes", "date_applied", "salary",
+    }
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ValueError(f"Unknown job fields: {sorted(unknown)}")
+
+    company = _clean(fields.get("company"))
+    role = _clean(fields.get("role"))
+    if not company or not role:
+        raise ValueError("Company and role are required.")
+
+    eligibility = (_clean(fields.get("eligibility")) or "APPLY").upper()
+    status = (_clean(fields.get("status")) or "SAVED").upper()
+    if eligibility not in VALID_ELIGIBILITY:
+        raise ValueError(f"Eligibility must be one of: {sorted(VALID_ELIGIBILITY)}")
+    if status not in VALID_STATUS:
+        raise ValueError(f"Status must be one of: {sorted(VALID_STATUS)}")
+
+    match_score = fields.get("match_score")
+    if match_score in ("", None):
+        match_score = None
+    else:
+        match_score = int(match_score)
+        if not 0 <= match_score <= 100:
+            raise ValueError("Match score must be between 0 and 100.")
+
+    required = _split_skills(fields.get("required_skills", ""))
+    missing = _split_skills(fields.get("missing_skills", ""))
+    values = {
+        "company": company,
+        "role": role,
+        "country": _clean(fields.get("country", "")),
+        "city": _clean(fields.get("city", "")),
+        "url": _clean(fields.get("url", "")),
+        "date_found": _clean(fields.get("date_found", "")),
+        "deadline": _clean(fields.get("deadline", "")),
+        "match_score": match_score,
+        "eligibility": eligibility,
+        "status": status,
+        "required_skills": ", ".join(required),
+        "missing_skills": ", ".join(missing),
+        "cv_version": _clean(fields.get("cv_version", "")),
+        "cover_letter": int(bool(fields.get("cover_letter"))),
+        "notes": _clean(fields.get("notes", "")),
+        "date_applied": _clean(fields.get("date_applied", "")),
+        "salary": _clean(fields.get("salary", "")),
+    }
+
+    connection = get_connection()
+    assignments = ", ".join(f"{name} = ?" for name in values)
+    connection.execute(
+        f"UPDATE jobs SET {assignments} WHERE id = ?",
+        (*values.values(), job_id),
+    )
+    changed = connection.total_changes
+    connection.execute("DELETE FROM job_skills WHERE job_id = ?", (job_id,))
+    _save_skills(connection, job_id, required, "REQUIRED")
+    _save_skills(connection, job_id, missing, "MISSING")
+    connection.commit()
+    connection.close()
+    return changed > 0
+
+
 def delete_job(job_id):
     connection = get_connection()
     connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))

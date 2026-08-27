@@ -1,4 +1,5 @@
 from collections import Counter
+from datetime import date, timedelta
 
 from src.database import get_connection
 
@@ -76,6 +77,14 @@ def get_summary():
         """
     ).fetchall()
 
+    deadline_rows = connection.execute(
+        """
+        SELECT deadline, status
+        FROM jobs
+        WHERE TRIM(COALESCE(deadline, '')) <> ''
+        """
+    ).fetchall()
+
     connection.close()
 
     required_skills = Counter()
@@ -89,6 +98,21 @@ def get_summary():
 
     response_rate = round((interviews / applied) * 100, 1) if applied else 0.0
     offer_rate = round((offers / applied) * 100, 1) if applied else 0.0
+    today = date.today()
+    soon_limit = today + timedelta(days=7)
+    overdue = 0
+    due_soon = 0
+    for row in deadline_rows:
+        if row["status"] in ("REJECTED", "WITHDRAWN", "OFFER"):
+            continue
+        try:
+            deadline = date.fromisoformat(row["deadline"])
+        except ValueError:
+            continue
+        if deadline < today:
+            overdue += 1
+        elif deadline <= soon_limit:
+            due_soon += 1
 
     return {
         "total_jobs": total,
@@ -105,4 +129,7 @@ def get_summary():
         "by_country": {row["country"]: row["n"] for row in country_rows},
         "required_skills": required_skills.most_common(),
         "missing_skills": missing_skills.most_common(),
+        "deadlines_tracked": len(deadline_rows),
+        "overdue_deadlines": overdue,
+        "deadlines_due_soon": due_soon,
     }
