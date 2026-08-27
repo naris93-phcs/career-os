@@ -1,11 +1,8 @@
 .venv/
-__pycache__/
-*.pyc
-
 build/
 dist/
-
-database/*.db
+database/
+__pycache__/
+*.pyc
+.env
 exports/
-
-*.spec
