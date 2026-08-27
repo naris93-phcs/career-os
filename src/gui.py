@@ -324,22 +324,45 @@ class CareerOSApp(tk.Tk):
         # a scrollable widget.
         current = widget
 
-        while current is not None:
-            # The funnel canvas is a visualisation, not a scrolling surface.
-            # When the mouse is over it, fall back to the Analytics tab's
-            # scroll target instead of trying to scroll the chart itself.
-            if isinstance(current, tk.Canvas) and current is getattr(self, "funnel_canvas", None):
+        # If an Edit Job dialog is open and the pointer is inside it,
+        # scroll that dialog regardless of which main tab is active.
+        pointer_toplevel = widget.winfo_toplevel() if widget is not None else None
+        edit_canvas = getattr(self, "_edit_scroll_canvas", None)
+        edit_dialog = getattr(self, "_edit_dialog", None)
+
+        if (
+            edit_canvas is not None
+            and edit_dialog is not None
+            and pointer_toplevel == edit_dialog
+        ):
+            target = edit_canvas
+        else:
+            # Prefer the scroll target for the active tab. This makes the mouse
+            # wheel scroll the page even when the pointer is over labels, frames,
+            # entries, buttons or the funnel visualisation.
+            active_tab = self.notebook.select()
+
+            if active_tab == str(self.add_tab):
+                target = self.add_form_canvas
+            elif active_tab == str(self.analytics_tab):
+                target = self.analytics_scroll_canvas
+            elif active_tab == str(self.jobs_tab):
+                target = self.tree
+            elif active_tab == str(self.insights_tab):
+                target = self.insight_text
+
+        # If no tab-specific target is available, fall back to the widget
+        # directly under the pointer.
+        if target is None:
+            current = widget
+
+            while current is not None:
+                if isinstance(current, (tk.Canvas, tk.Text, ttk.Treeview)):
+                    target = current
+                    break
+
                 current = getattr(current, "master", None)
-                continue
 
-            if isinstance(current, (tk.Canvas, tk.Text, ttk.Treeview)):
-                target = current
-                break
-
-            current = getattr(current, "master", None)
-
-        # If the mouse is over a child widget inside a scrollable
-        # form, use the scroll target assigned when entering the tab.
         if target is None:
             target = self._mouse_scroll_target
 
@@ -753,6 +776,19 @@ class CareerOSApp(tk.Tk):
         dialog_canvas.configure(yscrollcommand=dialog_scrollbar.set)
         dialog_canvas.pack(side="left", fill="both", expand=True)
         dialog_scrollbar.pack(side="right", fill="y")
+
+        # Register the active edit dialog so the global mouse-wheel handler
+        # scrolls this window anywhere the pointer is inside it.
+        self._edit_dialog = dialog
+        self._edit_scroll_canvas = dialog_canvas
+
+        def clear_edit_scroll_target():
+            if getattr(self, "_edit_dialog", None) == dialog:
+                self._edit_dialog = None
+                self._edit_scroll_canvas = None
+
+        dialog.bind("<Destroy>", lambda _event: clear_edit_scroll_target(), add="+")
+
         body = ttk.Frame(dialog_canvas, padding=22)
         body_window = dialog_canvas.create_window((0, 0), window=body, anchor="nw")
         body.bind("<Configure>", lambda _event: dialog_canvas.configure(scrollregion=dialog_canvas.bbox("all")))
