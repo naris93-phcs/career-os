@@ -195,7 +195,7 @@ def list_jobs(status=None):
         query += " WHERE status = ?"
         params.append(status.upper())
 
-    query += " ORDER BY id DESC"
+    query += " ORDER BY match_score IS NULL, match_score DESC, id DESC"
 
     rows = connection.execute(query, params).fetchall()
     connection.close()

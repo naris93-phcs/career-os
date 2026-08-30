@@ -1,5 +1,6 @@
 import tkinter as tk
 import webbrowser
+from datetime import date, datetime
 from tkinter import messagebox, ttk
 
 from src.analytics import get_summary
@@ -135,6 +136,12 @@ class CareerOSApp(tk.Tk):
 
         ttk.Button(
             toolbar,
+            text="View Notes",
+            command=self.view_selected_notes,
+        ).pack(side="left", padx=4)
+
+        ttk.Button(
+            toolbar,
             text="Refresh",
             command=self.refresh_jobs,
         ).pack(side="left", padx=4)
@@ -153,6 +160,7 @@ class CareerOSApp(tk.Tk):
             "match",
             "eligibility",
             "status",
+            "deadline",
             "found",
             "applied",
         )
@@ -172,6 +180,7 @@ class CareerOSApp(tk.Tk):
             "match": "Match",
             "eligibility": "Eligibility",
             "status": "Status",
+            "deadline": "Deadline",
             "found": "Found",
             "applied": "Applied",
         }
@@ -184,6 +193,7 @@ class CareerOSApp(tk.Tk):
             "match": 70,
             "eligibility": 100,
             "status": 100,
+            "deadline": 105,
             "found": 100,
             "applied": 100,
         }
@@ -196,6 +206,12 @@ class CareerOSApp(tk.Tk):
         self.tree.tag_configure("INTERVIEW", foreground=self.colors["green"])
         self.tree.tag_configure("OFFER", foreground=self.colors["green"], font=("Segoe UI", 10, "bold"))
         self.tree.tag_configure("REJECTED", foreground=self.colors["red"])
+
+        # Deadline urgency is shown only for jobs that are still SAVED.
+        # 4-7 days: yellow, 0-3 days: red, past deadline: dark red.
+        self.tree.tag_configure("DEADLINE_SOON", background="#FFF3BF")
+        self.tree.tag_configure("DEADLINE_URGENT", background="#FFD6D6")
+        self.tree.tag_configure("DEADLINE_EXPIRED", background="#F2B8B8")
 
         scrollbar = ttk.Scrollbar(
             self.jobs_tab,
@@ -660,11 +676,40 @@ class CareerOSApp(tk.Tk):
             font=("Segoe UI", 11), insertbackground=self.colors["ink"],
         )
 
+    def _deadline_tag(self, job):
+        """Return a visual urgency tag for an open/saved job deadline."""
+        if (job.get("status") or "").upper() != "SAVED":
+            return None
+
+        raw_deadline = (job.get("deadline") or "").strip()
+        if not raw_deadline:
+            return None
+
+        try:
+            deadline = datetime.strptime(raw_deadline, "%Y-%m-%d").date()
+        except ValueError:
+            # Keep the app usable even if an older entry has a non-ISO date.
+            return None
+
+        days_left = (deadline - date.today()).days
+        if days_left < 0:
+            return "DEADLINE_EXPIRED"
+        if days_left <= 3:
+            return "DEADLINE_URGENT"
+        if days_left <= 7:
+            return "DEADLINE_SOON"
+        return None
+
     def refresh_jobs(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
         for job in list_jobs():
+            tags = [job["status"] or "SAVED"]
+            deadline_tag = self._deadline_tag(job)
+            if deadline_tag:
+                tags.append(deadline_tag)
+
             self.tree.insert(
                 "",
                 "end",
@@ -676,10 +721,11 @@ class CareerOSApp(tk.Tk):
                     job["match_score"] if job["match_score"] is not None else "",
                     job["eligibility"] or "",
                     job["status"] or "",
+                    job["deadline"] or "",
                     job["date_found"] or "",
                     job["date_applied"] or "",
                 ),
-                tags=(job["status"] or "SAVED",),
+                tags=tuple(tags),
             )
 
     def save_job(self):
@@ -760,6 +806,56 @@ class CareerOSApp(tk.Tk):
 
         values = self.tree.item(selected[0], "values")
         return int(values[0])
+
+    def view_selected_notes(self):
+        job_id = self._selected_job_id()
+        if job_id is None:
+            return
+
+        job = get_job(job_id)
+        if not job:
+            messagebox.showerror("Career OS", "That job no longer exists.")
+            self.refresh_jobs()
+            return
+
+        dialog = tk.Toplevel(self)
+        dialog.title(f"Notes — {job['company']} — {job['role']}")
+        dialog.transient(self)
+        dialog.geometry("720x430")
+        dialog.minsize(520, 300)
+        dialog.configure(bg=self.colors["canvas"])
+
+        frame = ttk.Frame(dialog, padding=18)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(
+            frame,
+            text=f"{job['company']} — {job['role']}",
+            style="Section.TLabel",
+        ).pack(anchor="w", pady=(0, 10))
+
+        text_frame = ttk.Frame(frame)
+        text_frame.pack(fill="both", expand=True)
+        notes_box = tk.Text(
+            text_frame,
+            wrap="word",
+            background=self.colors["panel"],
+            foreground=self.colors["ink"],
+            relief="flat",
+            borderwidth=0,
+            padx=14,
+            pady=12,
+            font=("Segoe UI", 10),
+        )
+        scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=notes_box.yview)
+        notes_box.configure(yscrollcommand=scrollbar.set)
+        notes_box.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        notes = (job.get("notes") or "").strip()
+        notes_box.insert("1.0", notes or "No notes saved for this job.")
+        notes_box.configure(state="disabled")
+
+        ttk.Button(frame, text="Close", command=dialog.destroy).pack(anchor="e", pady=(12, 0))
 
     def open_selected_job_url(self):
         job_id = self._selected_job_id()
